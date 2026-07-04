@@ -1,4 +1,4 @@
-# ghoztty-skill
+# ghoztty-claude-plugin
 
 A [Claude Code](https://claude.com/claude-code) plugin that teaches Claude how to drive [Ghoztty](https://github.com/dzearing/ghoztty) — a fork of Ghostty with CLI-driven window management over a Unix domain socket.
 
@@ -20,8 +20,8 @@ Install [Ghoztty](https://github.com/dzearing/ghoztty/releases) and make sure th
 In Claude Code:
 
 ```
-/plugin marketplace add dzearing/ghoztty-skill
-/plugin install ghoztty@ghoztty-skill
+/plugin marketplace add dzearing/ghoztty-claude-plugin
+/plugin install ghoztty@ghoztty-claude-plugin
 ```
 
 ## Usage

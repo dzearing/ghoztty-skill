@@ -1,5 +1,5 @@
 {
-  "name": "ghoztty-skill",
+  "name": "ghoztty-claude-plugin",
   "description": "Claude Code plugin for controlling Ghoztty terminal windows and panes via CLI",
   "owner": {
     "name": "David Zearing"
@@ -14,9 +14,9 @@
       "category": "productivity",
       "source": {
         "source": "url",
-        "url": "https://github.com/dzearing/ghoztty-skill.git"
+        "url": "https://github.com/dzearing/ghoztty-claude-plugin.git"
       },
-      "homepage": "https://github.com/dzearing/ghoztty-skill"
+      "homepage": "https://github.com/dzearing/ghoztty-claude-plugin"
     }
   ]
 }

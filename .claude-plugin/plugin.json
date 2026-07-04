@@ -1,12 +1,12 @@
 {
   "name": "ghoztty",
   "description": "Control Ghoztty terminal windows and panes from Claude Code — open windows, create split layouts, read pane output, send keystrokes, and manage layouts via CLI",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
     "name": "David Zearing"
   },
-  "homepage": "https://github.com/dzearing/ghoztty-skill",
-  "repository": "https://github.com/dzearing/ghoztty-skill",
+  "homepage": "https://github.com/dzearing/ghoztty-claude-plugin",
+  "repository": "https://github.com/dzearing/ghoztty-claude-plugin",
   "license": "MIT",
   "keywords": [
     "ghoztty",
