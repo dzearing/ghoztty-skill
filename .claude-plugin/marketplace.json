@@ -1,5 +1,6 @@
 {
   "name": "ghoztty-skill",
+  "description": "Claude Code plugin for controlling Ghoztty terminal windows and panes via CLI",
   "owner": {
     "name": "David Zearing"
   },
