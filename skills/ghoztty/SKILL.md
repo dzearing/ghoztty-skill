@@ -1,6 +1,6 @@
 ---
 name: ghoztty
-description: Use when opening terminal windows, creating split pane layouts, listing open windows/panes, renaming window titles, rearranging pane layouts, reading terminal output, sending keystrokes to panes, setting activity state, or managing Ghoztty windows via CLI. Ghoztty is a terminal emulator with IPC commands for programmatic window/pane management. Use this skill whenever you need to launch a terminal, create splits, query window state, rename windows, rearrange layouts, read pane output, send input to panes, track activity state, or tear down layouts.
+description: Use when opening terminal windows, creating split pane layouts, listing open windows/panes, renaming window titles, rearranging pane layouts, reading terminal output, sending keystrokes to panes, setting activity state, showing a sticky status banner above a pane, or managing Ghoztty windows via CLI. Ghoztty is a terminal emulator with IPC commands for programmatic window/pane management. Use this skill whenever you need to launch a terminal, create splits, query window state, rename windows, rearrange layouts, read pane output, send input to panes, track activity state, post a persistent banner with status/links above a pane, or tear down layouts.
 ---
 
 # Ghoztty CLI Reference
@@ -302,6 +302,41 @@ ghoztty +set-state --target=dev --state=needs_input
 ghoztty +set-state --target=dev --state=idle
 ```
 
+### `ghoztty +set-banner`
+
+Set or clear a **sticky banner** rendered above a pane's terminal content. The banner is a native overlay — it persists across scrolling, screen clears, and content updates until you change or clear it. Ideal for pinning status, progress, or links (e.g. a PR link) above the pane you're working in.
+
+```
+ghoztty +set-banner --target=<name> [--clear] [text...]
+```
+
+| Flag / Arg | Description |
+|------------|-------------|
+| `--target=<name>` | Named pane or window. Required. For a window target, the banner is applied to its focused pane (banners are per-pane). |
+| `--clear` | Remove the banner. Empty text does the same. |
+| Positional args | Banner text (multiple args are joined with spaces). |
+
+**Formatting** (markdown subset):
+
+| Syntax | Result |
+|--------|--------|
+| `**text**` | bold |
+| `*text*` or `_text_` | italic |
+| `__text__` | underline (differs from CommonMark, where `__` is bold) |
+| `` `text` `` | monospace code |
+| `[label](https://url)` | clickable link — the URL must include a scheme |
+| `\*`, `\[`, `\\`, … | backslash escapes the next character |
+| `\n` | line break — banners can span multiple lines (display capped at 6) |
+
+Styles nest (`**bold with a [link](https://…)**`). Unterminated delimiters render literally.
+
+```bash
+ghoztty +set-banner --target=dev "**PR #123** — _3 files_, +120/−45 — [view](https://github.com/org/repo/pull/123)"
+ghoztty +set-banner --target=dev --clear
+```
+
+Processes inside the pane can also set the banner without IPC via OSC escape sequence: `\033]7778;<text>\007` (empty text clears). Interactive users can press Cmd+R ("Set Pane Banner…", also in the command palette) for a multi-line editor (Return = newline, Cmd+Return = save).
+
 ## Naming System
 
 - `+new-window --target=<name>` registers a **window**
@@ -433,6 +468,22 @@ ghoztty +set-state --target=dev --state=busy
 ghoztty +set-state --target=dev --state=needs_input
 # Mark idle when done
 ghoztty +set-state --target=dev --state=idle
+```
+
+### Pin a live status banner above your working pane
+
+Post a PR link plus live stats above the pane you're working in, and keep it updated as work progresses. The banner is sticky — it stays put while the terminal scrolls underneath.
+
+```bash
+# When the PR is opened
+ghoztty +set-banner --target=dev "**PR #123** — _draft_ — [view](https://github.com/org/repo/pull/123)"
+
+# Update as work progresses (idempotent — just set it again)
+ghoztty +set-banner --target=dev "**PR #123** — _3 files_, +120/−45 — CI __running__ — [view](https://github.com/org/repo/pull/123)"
+ghoztty +set-banner --target=dev "**PR #123** — CI **green** — ready for review — [view](https://github.com/org/repo/pull/123)"
+
+# Clear when done
+ghoztty +set-banner --target=dev --clear
 ```
 
 ### Pass environment variables
