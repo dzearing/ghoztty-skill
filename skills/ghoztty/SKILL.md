@@ -325,17 +325,22 @@ ghoztty +set-banner --target=<name> [--clear] [text...]
 | `__text__` | underline (differs from CommonMark, where `__` is bold) |
 | `` `text` `` | monospace code |
 | `[label](https://url)` | clickable link — the URL must include a scheme |
-| `\*`, `\[`, `\\`, … | backslash escapes the next character |
-| `\n` | line break — banners can span multiple lines (display capped at 6) |
+| `\*`, `\[`, `\\`, `\|`, … | backslash escapes the next character |
+| `\n` | line break — banners can span multiple lines (display capped at 10) |
 
 Styles nest (`**bold with a [link](https://…)**`). Unterminated delimiters render literally.
 
+**Tables** (standard markdown pipe syntax): a `| a | b |` header line immediately followed by a `|---|---|` separator with the same column count, then `| 1 | 2 |` body rows, render as an aligned grid with a bold header. Separator cells accept `:` alignment markers (`:---` left, `:---:` center, `---:` right). Cells support the full inline subset; `\|` puts a literal pipe inside a cell. Ragged rows are padded/truncated to the header width. The separator row doesn't render, but every other table row counts toward the 10-line cap.
+
 ```bash
 ghoztty +set-banner --target=dev "**PR #123** — _3 files_, +120/−45 — [view](https://github.com/org/repo/pull/123)"
+ghoztty +set-banner --target=dev "**Build status**\n| Job | State |\n|:---|---:|\n| lint | ok |\n| tests | **3 failed** |"
 ghoztty +set-banner --target=dev --clear
 ```
 
-Processes inside the pane can also set the banner without IPC via OSC escape sequence: `\033]7778;<text>\007` (empty text clears). Interactive users can press Cmd+R ("Set Pane Banner…", also in the command palette) for a multi-line editor (Return = newline, Cmd+Return = save).
+Multi-line banners are **collapsible** in the UI: a chevron button (top-right) or a click anywhere on the banner background toggles between the full banner (default) and a collapsed single-line preview with a bottom fade. This is a display-only, per-pane UI state — it doesn't change the stored banner text, and there's no CLI flag for it.
+
+Processes inside the pane can also set the banner without IPC via OSC escape sequence: `\033]7778;<text>\007` (empty text clears; note the OSC parser drops raw newlines, so OSC banners are single-line — use the CLI for tables/multi-line). Interactive users can press Cmd+R ("Set Pane Banner…", also in the command palette) for a multi-line editor (Return = newline, Cmd+Return = save).
 
 ## Naming System
 
