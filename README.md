@@ -10,6 +10,25 @@ With this skill installed, Claude Code can:
 - Send keystrokes and control sequences to running processes
 - Rearrange split layouts declaratively while preserving terminal state
 - Rename windows and track activity state (`idle` / `busy` / `needs_input`)
+- Keep a live per-pane **status banner** for the session (see below)
+
+## Status banner
+
+The plugin ships hooks that maintain a sticky banner above the active pane,
+so you can see at a glance what the session is doing:
+
+- **Title** (an `#### ` heading, rendered slightly larger), then a key/value
+  table of **Goal**, **Status**, **You asked**, **What I did**, and a clickable
+  **PR** link.
+- Claude keeps the banner current by calling `~/.claude/scripts/ghoztty-banner.sh`
+  (symlinked from the plugin on session start). "You asked" / "What I did" are
+  short paraphrases, auto-seeded from the prompt and last tool action.
+- Stale content is pruned automatically: a new ask clears the previous "What I
+  did", switching tasks drops the old PR link, and a PR that has been
+  closed/merged is removed on the next idle (best-effort, via `gh`).
+
+The banner requires a Ghoztty build with banner support (`+set-banner`, markdown
+tables, and headings); on older builds the hooks silently no-op.
 
 ## Prerequisites
 
