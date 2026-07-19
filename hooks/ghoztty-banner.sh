@@ -8,7 +8,7 @@
 #   |  |  |
 #   |---|---|
 #   | **Goal** | <goal> |
-#   | **Last prompt** | <asked> |
+#   | **Prompt** | <asked> |
 #   | **Status** | <status> · <activity> |
 #   **Last result**
 #   <did>                     # plain-language summary; may be a multi-line
@@ -16,12 +16,13 @@
 #                             # cell can't hold, so it lives below the table
 #   **PR** [<url>](<url>)
 #
-# "Last prompt"/"Last result" are model-provided paraphrases (set --asked/--did):
-# "Last prompt" is a plain-language paraphrase of the user's prompt (not a
-# verbatim quote); "Last result" summarizes what was done for it. Each is
-# auto-seeded from the raw prompt / last tool action as a fallback. The PR is a
-# clickable markdown link. Fields persist in a per-tty state file, so each call
-# only passes what changed.
+# "Prompt"/"Last result" are model-provided paraphrases (set --asked/--did):
+# "Prompt" is a plain-language paraphrase of the user's prompt (not a verbatim
+# quote) and is auto-seeded from the raw prompt as a fallback; "Last result"
+# names only the actual code fixes/features that landed this turn and is set
+# ONLY by the model's explicit --did (never auto-seeded from tool calls, which
+# are steps, not results). The PR is a clickable markdown link. Fields persist
+# in a per-tty state file, so each call only passes what changed.
 # Delivery: ghoztty +set-banner CLI (multi-line + tables) targeting the
 # cached/resolved pane name; falls back to a single-line OSC 7778 write to the
 # tty device when the pane can't be resolved (the OSC parser drops newlines, so
@@ -34,7 +35,6 @@
 #   ghoztty-banner.sh prompt-hook       # UserPromptSubmit: activity=working + context JSON
 #   ghoztty-banner.sh session-start-hook # SessionStart(startup|clear): wipe + clear banner
 #   ghoztty-banner.sh stop-hook         # Stop: activity=idle
-#   ghoztty-banner.sh posttool-hook     # PostToolUse: set "Last action" from stdin JSON
 #   ghoztty-banner.sh clear
 #
 # Silently no-ops when not running inside Ghoztty.
@@ -136,9 +136,12 @@ render() {
         return 0
     fi
 
+    # Display the activity sentence-cased ("Working"/"Idle") regardless of the
+    # lowercase token stored in the state file.
     local statline="$status"
     if [ -n "$activity" ]; then
-        [ -n "$statline" ] && statline="$statline · $activity" || statline="$activity"
+        local act_disp="$(printf '%s' "${activity:0:1}" | tr '[:lower:]' '[:upper:]')${activity:1}"
+        [ -n "$statline" ] && statline="$statline · $act_disp" || statline="$act_disp"
     fi
 
     local pane
@@ -152,7 +155,7 @@ render() {
             rows="$rows\n| **$1** | $(esc_cell "$2") |"
         }
         add_row "Goal" "$goal"
-        add_row "Last prompt" "$asked"
+        add_row "Prompt" "$asked"
         add_row "Status" "$statline"
 
         # Title as an `## ` h2 heading on its own line above the table, so it
@@ -188,7 +191,7 @@ render() {
         line="$line**$1:** $2"
     }
     add_seg "Goal" "$goal"
-    add_seg "Last prompt" "$asked"
+    add_seg "Prompt" "$asked"
     add_seg "Status" "$statline"
     add_seg "Last result" "$did"
     [ -n "$pr" ] && { [ -n "$line" ] && line="$line$sep"; line="$line**PR:** $(pr_link "$pr")"; }
@@ -263,7 +266,7 @@ prompt-hook)
     jq_merge "${pairs[@]}"
     render
     cat <<'EOF'
-{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"This session runs in a Ghoztty pane with a persistent status banner. Keep it current: run `~/.claude/scripts/ghoztty-banner.sh set --title '<short task title>' --goal '<current goal>' --status '<one-line progress note>' [--asked '<plain-language paraphrase of the user's last prompt, NOT a verbatim quote>'] [--did '<plain-language summary of what you did for this prompt>'] [--pr <url>]` when a task starts, whenever the goal/status meaningfully changes, and when a PR is created. --asked shows as 'Last prompt' and --did as 'Last result'; keep both as short human-readable paraphrases (never raw tool names or quotes). For --did, when you did more than one thing, pass a checklist with one item per line using \\n, e.g. --did '- [x] Renamed the fields\\n- [x] Moved Last prompt above Status\\n- [x] Made the title an h2'. Refresh --did as you finish meaningful steps. Fields persist between calls, so pass only what changed."}}
+{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"This session runs in a Ghoztty pane with a persistent status banner. Keep it current: run `~/.claude/scripts/ghoztty-banner.sh set --title '<short task title>' --goal '<current goal>' --status '<one-line progress note>' [--asked '<plain-language paraphrase of the user's last prompt, NOT a verbatim quote>'] [--did '<the actual code fix/feature that landed>'] [--pr <url>]` when a task starts, whenever the goal/status meaningfully changes, and when a PR is created. --asked shows as 'Prompt' and --did as 'Last result'; keep both as short human-readable paraphrases (never raw tool names or quotes). IMPORTANT: --did is for ACTUAL fixes/features applied to the code, set it only once real changes have landed — never for exploration, reads, or intermediate tool calls (those are steps, not results); leave it alone until then. When more than one fix landed, pass a checklist with one item per line using \\n, e.g. --did '- [x] Renamed Last prompt to Prompt\\n- [x] Stopped auto-seeding Last result from tool calls'. Fields persist between calls, so pass only what changed."}}
 EOF
     ;;
 session-start-hook)
@@ -302,29 +305,6 @@ stop-hook)
         esac
     fi
     ;;
-posttool-hook)
-    input=$(cat)
-    # Never let our own banner update overwrite a paraphrase just set.
-    case "$(echo "$input" | jq -r '.tool_input.command // ""' 2>/dev/null)" in
-        *ghoztty-banner.sh*) exit 0 ;;
-    esac
-    # Auto-seed "What I did" with the raw tool action; the model refines it
-    # into a paraphrase via `set --did` at meaningful checkpoints.
-    did=$(echo "$input" | jq -r '
-        .tool_name as $t
-        | if $t == "Bash" then
-            ($t + ": " + (.tool_input.description // .tool_input.command // ""))
-          elif (.tool_input.file_path // "") != "" then
-            ($t + ": " + (.tool_input.file_path | split("/") | last))
-          else
-            $t
-          end' 2>/dev/null)
-    [ -n "$did" ] || exit 0
-    did=$(sanitize "$did")
-    [ ${#did} -gt 80 ] && did="${did:0:77}..."
-    jq_merge did "$did"
-    render
-    ;;
 clear)
     pane=$(resolve_pane)
     rm -f "$STATE_FILE"
@@ -332,7 +312,7 @@ clear)
     send_osc ""
     ;;
 *)
-    echo "usage: ghoztty-banner.sh set|status|activity|prompt-hook|session-start-hook|stop-hook|posttool-hook|clear" >&2
+    echo "usage: ghoztty-banner.sh set|status|activity|prompt-hook|session-start-hook|stop-hook|clear" >&2
     exit 2
     ;;
 esac

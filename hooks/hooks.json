@@ -42,19 +42,6 @@
           }
         ]
       }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Bash|Edit|Write|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/ghoztty-banner.sh\" posttool-hook",
-            "timeout": 10,
-            "async": true
-          }
-        ]
-      }
     ]
   }
 }
