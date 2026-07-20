@@ -1,6 +1,6 @@
 ---
 name: ghoztty
-description: Use when opening terminal windows, creating split pane layouts, listing open windows/panes, renaming window titles, rearranging pane layouts, reading terminal output, sending keystrokes to panes, setting activity state, showing a sticky status banner above a pane, or managing Ghoztty windows via CLI. Ghoztty is a terminal emulator with IPC commands for programmatic window/pane management. Use this skill whenever you need to launch a terminal, create splits, query window state, rename windows, rearrange layouts, read pane output, send input to panes, track activity state, post a persistent banner with status/links above a pane, or tear down layouts.
+description: Use when opening terminal windows, creating split pane layouts, opening a rendered markdown/doc/README, a code file, or a website in a viewer ("side") pane, listing open windows/panes, renaming window titles, rearranging pane layouts, reading terminal output, sending keystrokes to panes, setting activity state, showing a sticky status banner above a pane, or managing Ghoztty windows via CLI. Ghoztty is a terminal emulator with IPC commands for programmatic window/pane management. Use this skill whenever you need to launch a terminal, create splits, open a file or website in a side/viewer pane (rendered markdown, syntax-highlighted code, or a webpage), query window state, rename windows, rearrange layouts, read pane output, send input to panes, track activity state, post a persistent banner with status/links above a pane, or tear down layouts. When the user says "open X in a side pane", "show the readme/doc beside this", or "preview this markdown", use `+split --view=<path-or-url>`.
 ---
 
 # Ghoztty CLI Reference
@@ -36,6 +36,7 @@ ghoztty +new-window [flags]
 | `--target=<name>` | Register window with a name. If it already exists, focuses it instead. |
 | `--working-directory=<path>` | Working directory for the terminal. Relative paths are resolved from CWD. `~` is expanded. If omitted, uses the CWD where `ghoztty` is invoked. |
 | `--command=<cmd>` | Command to run in the terminal. Auto-wrapped in the user's login shell with profile loaded. |
+| `--view=<path-or-url>` | Open a **viewer** pane instead of a terminal: a rendered markdown file, a syntax-highlighted text/code file, or a website (http/https URL). Relative paths resolve against `--working-directory` (else caller cwd). Mutually exclusive with `--command`/`-e`. |
 | `--shell=<path>` | Shell to use for `--command`/`--split-command`, invoked with `-lic`. Falls back to config `command-shell`, then `$SHELL`, then `/bin/zsh`. |
 | `--env=KEY=VALUE` | Environment variable for the spawned process. Repeatable. |
 | `--no-activate` | Create the window without stealing focus from the current workspace. Useful for automation and background agent windows. |
@@ -61,11 +62,48 @@ ghoztty +split [flags]
 | `--target=<name>` | Window or pane to split in. Must have been created with `--target` or `--name`. Default: most recently focused window. |
 | `--name=<name>` | Register the new pane with a name. If it already exists, focuses it instead. |
 | `--command=<cmd>` | Command to run in the new pane. Auto-wrapped in the user's login shell with profile loaded. |
+| `--view=<path-or-url>` | Open the new pane as a **viewer** (rendered markdown / highlighted code / website) instead of a terminal. Relative paths resolve against `--working-directory` (else caller cwd). Mutually exclusive with `--command`/`-e`. This is the way to "open a file/README/doc in a side pane". |
 | `--shell=<path>` | Shell to use for `--command`, invoked with `-lic`. Falls back to config `command-shell`, then `$SHELL`, then `/bin/zsh`. |
 | `--env=KEY=VALUE` | Environment variable for the spawned process. Repeatable. |
 | `--color=<#hex\|random>` | Background color for the new pane. |
 | `--working-directory=<path>` | Working directory for the new pane. |
 | `-e <args...>` | Everything after `-e` becomes the command. |
+
+### Viewer panes (`--view=<path-or-url>`)
+
+Both `+new-window` and `+split` accept `--view` to open a **viewer pane** instead
+of a terminal. This is the built-in way to honor "open the README in a side pane",
+"show that doc beside this", or "preview this markdown" — **do not** shell out to
+`less`/`cat`/`open` for that. The pane renders:
+
+- **Markdown** files — fully rendered (GitHub styling, code highlighting, task
+  lists), with **live reload** on save (scroll position preserved).
+- **Text / code** files — syntax-highlighted, read-only.
+- **Websites** — any `http(s)://` URL (this is the only mode that uses the
+  network; file rendering is fully offline via bundled assets).
+
+It follows the system/app light-dark theme automatically. Viewer panes are
+**view-only** (no editing) and are ordinary leaves in the split tree, so
+`--name`, `--target`, `--split-percent`, `+close`, and `+rearrange` all work on
+them. Idempotent: re-running with the same `--name` focuses the existing viewer
+instead of opening another. (Minor gap: while a viewer pane is focused, some
+`goto_split` keybindings may not fire — click a terminal pane to regain them.)
+
+```bash
+# Open a README in a rendered pane to the right of the current pane
+ghoztty +split --direction=right --view=README.md
+
+# A doc pane at 45% width, named so you can refocus/close it later
+ghoztty +split --direction=right --split-percent=45 --name=docs \
+  --working-directory=/path/to/project --view=docs/design/overview.md
+
+# A standalone viewer window for a webpage
+ghoztty +new-window --target=changelog --view=https://example.com/changelog
+
+# Editor + live-rendered markdown preview, side by side (two steps)
+ghoztty +new-window --target=notes --command="nvim NOTES.md"
+ghoztty +split --target=notes --direction=right --name=preview --view=NOTES.md
+```
 
 ### `ghoztty +list`
 
@@ -517,3 +555,4 @@ Closing a nonexistent target is a no-op, so teardown scripts are safe even if so
 - **Don't manually wrap with `zsh -lic`** — `--command` auto-wraps in the user's login shell. Use `--shell` only if you need a different shell.
 - **Don't use sequential `+new-window` then `+split`** for the initial layout — use `--split` and `--split-command` on `+new-window` for atomicity.
 - **Don't assume `--working-directory` propagates to `--split-command`** — the split pane must `cd` explicitly if it needs the same directory.
+- **Don't `less`/`cat`/`open` a file to show it in a pane** — that dumps raw text (unrendered markdown) or opens an external app. Use `+split --view=<path>` for a rendered, live-reloading viewer pane.
