@@ -105,6 +105,27 @@ ghoztty +new-window --target=notes --command="nvim NOTES.md"
 ghoztty +split --target=notes --direction=right --name=preview --view=NOTES.md
 ```
 
+### `ghoztty +reload`
+
+Reload a named **viewer pane** in place — no close/reopen. Website viewers re-fetch the page from origin (bypassing caches); file viewers re-render the file preserving scroll position. Local file viewers already live-reload on save, so this mainly matters for `--view=<url>` panes (e.g. refresh a dev-server preview after a rebuild).
+
+```
+ghoztty +reload --target=<name>
+```
+
+| Flag | Description |
+|------|-------------|
+| `--target=<name>` | Named window or pane (or a pane id). Required. For a window target, the reload applies to its focused pane. |
+
+- Targeting a terminal pane fails with `... is a terminal pane, nothing to reload` (exit 1) — mirroring how terminal-only commands reject viewer panes.
+
+```bash
+# Refresh a local dev-server preview after rebuilding
+ghoztty +split --target=dev --name=preview --view=http://localhost:3000
+# ... rebuild ...
+ghoztty +reload --target=preview
+```
+
 ### `ghoztty +list`
 
 List all open windows, tabs, and panes. Human-readable tree view by default, `--json` for machine-readable output. Requires a running Ghoztty instance.
