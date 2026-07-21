@@ -24,7 +24,7 @@
 # ONLY by the model's explicit --did (never auto-seeded from tool calls, which
 # are steps, not results). "Bugs fixed" (--bugs) is set only when the prompt is
 # fixing a specific bug, and holds clickable markdown link(s) to the bug(s). The
-# PR is a clickable markdown link. Fields persist in a per-pane state file, so
+# PR is a clickable markdown link. Fields persist in a per-tty state file, so
 # each call only passes what changed.
 # Delivery: ghoztty +set-banner CLI (multi-line + tables) targeting this pane's
 # $GHOZTTY_PANE_ID; falls back to a single-line OSC 7778 write to the tty device
@@ -65,33 +65,20 @@ find_tty() {
     return 1
 }
 
-TTY_NAME=$(find_tty) || TTY_NAME=""
+TTY_NAME=$(find_tty) || exit 0
 
 # This pane's ghoztty-owned id: baked into the pane's env at spawn, inherited by
 # hook shells, and accepted directly by every --target. It is authoritative and
 # stable for the pane's whole life — including across a session-persistence
 # restore, which allocates a FRESH pty. The tty is not: a restore can hand this
-# pane a different tty, or hand this tty to a different pane.
+# pane a different tty, or hand this tty to a different pane, which is what used
+# to aim a session's banner at a SIBLING pane. Targeting uses this; the state
+# file stays tty-keyed so that a plugin upgrade never splits a running session's
+# state between two files (its in-process hooks keep running the old script
+# until the session restarts).
 PANE_ID="${GHOZTTY_PANE_ID:-}"
 
-# Key the state by pane id when we have one. A tty-keyed file survives a restore
-# that remapped tty->pane and then aims the banner at whatever pane inherited
-# the tty (the "banner painted into a sibling pane" bug). Fall back to the tty
-# only for panes spawned by an app too old to bake the env var.
-if [ -n "$PANE_ID" ]; then
-    STATE_FILE="$STATE_DIR/pane-$PANE_ID.json"
-    # One-time migration off the old tty-keyed file so an in-flight session
-    # keeps its banner fields. The old `pane` cache is dropped on the way over:
-    # it is the field that could be pointing at the wrong pane.
-    if [ ! -f "$STATE_FILE" ] && [ -n "$TTY_NAME" ] && [ -f "$STATE_DIR/$TTY_NAME.json" ]; then
-        jq 'del(.pane)' "$STATE_DIR/$TTY_NAME.json" > "$STATE_FILE" 2>/dev/null &&
-            rm -f "$STATE_DIR/$TTY_NAME.json"
-    fi
-elif [ -n "$TTY_NAME" ]; then
-    STATE_FILE="$STATE_DIR/$TTY_NAME.json"
-else
-    exit 0
-fi
+STATE_FILE="$STATE_DIR/$TTY_NAME.json"
 
 read_field() { # field
     [ -f "$STATE_FILE" ] && jq -r --arg k "$1" '.[$k] // empty' "$STATE_FILE" 2>/dev/null
@@ -130,7 +117,6 @@ pr_link() {
 }
 
 send_osc() { # single-line text
-    [ -n "$TTY_NAME" ] || return 0
     printf '\033]7778;%s\007' "$1" > "/dev/$TTY_NAME" 2>/dev/null
 }
 
@@ -150,7 +136,6 @@ resolve_pane() {
         return 0
     fi
     command -v ghoztty >/dev/null 2>&1 || return 1
-    [ -n "$TTY_NAME" ] || return 1
     local cached pane list
     cached=$(read_field pane)
     list=$(ghoztty +list --json 2>/dev/null) || return 1
@@ -304,7 +289,7 @@ prompt-hook)
     pairs=(activity "working" did "")
     [ -n "$asked" ] && pairs+=(asked "$asked")
 
-    # The state file is keyed by pane, so a fresh Claude session starting in a
+    # The state file is keyed by tty, so a fresh Claude session starting in a
     # pane inherits the PREVIOUS session's task fields (title/goal/status/pr).
     # Detect a new session by its id and wipe the stale task identity, so a
     # fresh context begins with a blank banner instead of another session's
