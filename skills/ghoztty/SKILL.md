@@ -21,6 +21,40 @@ If not found, tell the user:
 
 Do NOT proceed if `ghoztty` is unavailable.
 
+## Know where you are: `$GHOZTTY_PANE_ID`
+
+Every pane bakes its own identity into its processes' environment. When you are
+running **inside** a Ghoztty pane, you already know which pane you are — do not
+call `+list` to figure it out.
+
+| Variable | What it is |
+|---|---|
+| `$GHOZTTY_PANE_ID` | This pane's stable id (a UUID). Accepted directly by every `--target`/`--name`/`--pane` with no prior registration or `+list`. Stable for the pane's whole life, across app relaunch and session restore. |
+| `$GHOZTTY_WINDOW_NAME` | The name of the window this pane is in, when it has one. |
+| `$GHOZTTY_IPC_SOCKET` | The IPC socket of the app instance that owns this pane. The CLI reads it automatically — you never pass it, but it is why commands reach *this* app (e.g. a debug build) rather than whichever build is on `$PATH`. |
+
+**So "open a side pane here" is one command:**
+
+```bash
+ghoztty +split --pane="$GHOZTTY_PANE_ID" --direction=right
+```
+
+Rules that follow from this:
+
+- **Target your own pane explicitly.** A bare `+split` goes to the *most recently
+  focused* window — if the user clicks another window between their request and
+  your command, the split lands in the wrong place. `--pane="$GHOZTTY_PANE_ID"`
+  is immune to focus changes.
+- **Do not pass `--working-directory` for a plain split.** A new split inherits
+  the parent pane's cwd. Passing your own cwd overrides it, and the two diverge
+  as soon as the shell `cd`s somewhere.
+- **Do not call `+list` first.** It is a wasted round trip when you only need
+  your own pane, and it auto-registers every pane it walks. Use `+list` when you
+  genuinely need to inspect *other* windows/panes.
+- Prefer the pane id over pid/tty matching: pids and ttys are per-machine and are
+  meaningless for remote panes. (`+list --tty=<tty>` remains a fallback for a
+  process that has no baked env, e.g. one started before its pane existed.)
+
 ## Commands
 
 ### `ghoztty +new-window`
@@ -59,7 +93,8 @@ ghoztty +split [flags]
 | Flag | Description |
 |------|-------------|
 | `--direction=right\|down\|left\|up` | Split direction. Default: `right`. |
-| `--target=<name>` | Window or pane to split in. Must have been created with `--target` or `--name`. Default: most recently focused window. |
+| `--target=<name>` | Window or pane to split in — a name from `--target`/`--name`, or any pane id (e.g. `$GHOZTTY_PANE_ID`, no registration needed). Default: most recently focused window. |
+| `--pane=<name-or-id>` | Split adjacent to this specific pane instead of the focused one. Use `--pane="$GHOZTTY_PANE_ID"` to split off your own pane regardless of what the user has focused. |
 | `--name=<name>` | Register the new pane with a name. If it already exists, focuses it instead. |
 | `--command=<cmd>` | Command to run in the new pane. Auto-wrapped in the user's login shell with profile loaded. |
 | `--view=<path-or-url>` | Open the new pane as a **viewer** (rendered markdown / highlighted code / website) instead of a terminal. Relative paths resolve against `--working-directory` (else caller cwd). Mutually exclusive with `--command`/`-e`. This is the way to "open a file/README/doc in a side pane". |
@@ -90,12 +125,13 @@ instead of opening another. (Minor gap: while a viewer pane is focused, some
 `goto_split` keybindings may not fire — click a terminal pane to regain them.)
 
 ```bash
-# Open a README in a rendered pane to the right of the current pane
-ghoztty +split --direction=right --view=README.md
+# Open a README in a rendered pane to the right of YOUR pane
+ghoztty +split --pane="$GHOZTTY_PANE_ID" --direction=right --view=README.md
 
 # A doc pane at 45% width, named so you can refocus/close it later
-ghoztty +split --direction=right --split-percent=45 --name=docs \
-  --working-directory=/path/to/project --view=docs/design/overview.md
+# (--working-directory here only resolves the relative --view path)
+ghoztty +split --pane="$GHOZTTY_PANE_ID" --direction=right --split-percent=45 \
+  --name=docs --working-directory=/path/to/project --view=docs/design/overview.md
 
 # A standalone viewer window for a webpage
 ghoztty +new-window --target=changelog --view=https://example.com/changelog
@@ -260,6 +296,8 @@ Window: "~/docs"
 - **`exit_code`**: `null` if the process is still running, or the exit code (e.g. `0`, `1`) if it has exited. Human-readable output shows `running` or `exited(N)`.
 
 **Side effect:** `+list` auto-registers all discovered windows and panes in the target registry, so names from the output can immediately be used with `+close --target=<name>` or `+split --target=<name>`.
+
+**Don't use `+list` to find yourself.** If you are running inside a pane, `$GHOZTTY_PANE_ID` already names it (see [Know where you are](#know-where-you-are-ghoztty_pane_id)). Reach for `+list` when you need to inspect *other* windows/panes.
 
 ### `ghoztty +rename`
 
