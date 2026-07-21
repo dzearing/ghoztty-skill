@@ -24,12 +24,12 @@
 # ONLY by the model's explicit --did (never auto-seeded from tool calls, which
 # are steps, not results). "Bugs fixed" (--bugs) is set only when the prompt is
 # fixing a specific bug, and holds clickable markdown link(s) to the bug(s). The
-# PR is a clickable markdown link. Fields persist in a per-tty state file, so
+# PR is a clickable markdown link. Fields persist in a per-pane state file, so
 # each call only passes what changed.
-# Delivery: ghoztty +set-banner CLI (multi-line + tables) targeting the
-# cached/resolved pane name; falls back to a single-line OSC 7778 write to the
-# tty device when the pane can't be resolved (the OSC parser drops newlines, so
-# the table/multi-line form is CLI-only).
+# Delivery: ghoztty +set-banner CLI (multi-line + tables) targeting this pane's
+# $GHOZTTY_PANE_ID; falls back to a single-line OSC 7778 write to the tty device
+# when the pane can't be resolved (the OSC parser drops newlines, so the
+# table/multi-line form is CLI-only).
 #
 # Usage:
 #   ghoztty-banner.sh set [--title T] [--goal G] [--status S] [--asked A] [--did D] [--pr URL]
@@ -65,8 +65,33 @@ find_tty() {
     return 1
 }
 
-TTY_NAME=$(find_tty) || exit 0
-STATE_FILE="$STATE_DIR/$TTY_NAME.json"
+TTY_NAME=$(find_tty) || TTY_NAME=""
+
+# This pane's ghoztty-owned id: baked into the pane's env at spawn, inherited by
+# hook shells, and accepted directly by every --target. It is authoritative and
+# stable for the pane's whole life — including across a session-persistence
+# restore, which allocates a FRESH pty. The tty is not: a restore can hand this
+# pane a different tty, or hand this tty to a different pane.
+PANE_ID="${GHOZTTY_PANE_ID:-}"
+
+# Key the state by pane id when we have one. A tty-keyed file survives a restore
+# that remapped tty->pane and then aims the banner at whatever pane inherited
+# the tty (the "banner painted into a sibling pane" bug). Fall back to the tty
+# only for panes spawned by an app too old to bake the env var.
+if [ -n "$PANE_ID" ]; then
+    STATE_FILE="$STATE_DIR/pane-$PANE_ID.json"
+    # One-time migration off the old tty-keyed file so an in-flight session
+    # keeps its banner fields. The old `pane` cache is dropped on the way over:
+    # it is the field that could be pointing at the wrong pane.
+    if [ ! -f "$STATE_FILE" ] && [ -n "$TTY_NAME" ] && [ -f "$STATE_DIR/$TTY_NAME.json" ]; then
+        jq 'del(.pane)' "$STATE_DIR/$TTY_NAME.json" > "$STATE_FILE" 2>/dev/null &&
+            rm -f "$STATE_DIR/$TTY_NAME.json"
+    fi
+elif [ -n "$TTY_NAME" ]; then
+    STATE_FILE="$STATE_DIR/$TTY_NAME.json"
+else
+    exit 0
+fi
 
 read_field() { # field
     [ -f "$STATE_FILE" ] && jq -r --arg k "$1" '.[$k] // empty' "$STATE_FILE" 2>/dev/null
@@ -83,7 +108,10 @@ jq_merge() { # k1 v1 [k2 v2 ...]
         jqargs+=(--arg "k$i" "$1" --arg "v$i" "$2")
         shift 2
     done
-    echo "$cur" | jq "${jqargs[@]}" "$prog" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+    # printf, not echo: banner text carries literal `\n`, which some shells'
+    # echo would expand into real newlines and corrupt the JSON.
+    printf '%s\n' "$cur" | jq "${jqargs[@]}" "$prog" > "$STATE_FILE.tmp" &&
+        mv "$STATE_FILE.tmp" "$STATE_FILE"
 }
 
 # Strip control characters that would corrupt an OSC sequence or IPC payload.
@@ -102,20 +130,33 @@ pr_link() {
 }
 
 send_osc() { # single-line text
+    [ -n "$TTY_NAME" ] || return 0
     printf '\033]7778;%s\007' "$1" > "/dev/$TTY_NAME" 2>/dev/null
 }
 
-# Resolve this tty to a registered pane name. Order: cached name (validated
-# against the live pane list), then +list --tty (works for non-persistence
-# panes; session-persistence panes report an empty tty until the
-# Remote.zig getProcessInfo TODO is fixed). Caches on success.
+# Resolve the pane this session runs in. $GHOZTTY_PANE_ID is authoritative and
+# needs no lookup or cache, so it wins outright. Older app builds don't bake it:
+# those fall back to a cached name, then to +list --tty.
+#
+# The cache is validated against the pane's CURRENT tty, not merely its
+# existence — a pane id that still exists somewhere in the tree can belong to a
+# DIFFERENT pane than the one this tty maps to today, and an existence-only
+# check can never notice. A pane reporting an empty tty (some
+# session-persistence panes) can't disprove the cache, so it stays valid; a
+# different non-empty tty invalidates it and forces a re-resolve.
 resolve_pane() {
+    if [ -n "$PANE_ID" ]; then
+        echo "$PANE_ID"
+        return 0
+    fi
     command -v ghoztty >/dev/null 2>&1 || return 1
+    [ -n "$TTY_NAME" ] || return 1
     local cached pane list
     cached=$(read_field pane)
     list=$(ghoztty +list --json 2>/dev/null) || return 1
-    if [ -n "$cached" ] && echo "$list" | jq -e --arg n "$cached" \
-        'any(.. | objects; .name? == $n)' >/dev/null 2>&1; then
+    if [ -n "$cached" ] && printf '%s\n' "$list" | jq -e --arg n "$cached" --arg t "/dev/$TTY_NAME" \
+        'any(.. | objects; (.name? == $n) and ((.tty? // "") | (. == "" or . == $t)))' \
+        >/dev/null 2>&1; then
         echo "$cached"
         return 0
     fi
@@ -263,7 +304,7 @@ prompt-hook)
     pairs=(activity "working" did "")
     [ -n "$asked" ] && pairs+=(asked "$asked")
 
-    # The state file is keyed by tty, so a fresh Claude session starting in a
+    # The state file is keyed by pane, so a fresh Claude session starting in a
     # pane inherits the PREVIOUS session's task fields (title/goal/status/pr).
     # Detect a new session by its id and wipe the stale task identity, so a
     # fresh context begins with a blank banner instead of another session's
